@@ -61,7 +61,7 @@ function SimulationInner() {
   const setWheelStates = useSimulationStore(s => s.setWheelStates);
   const setIsInitialized = useSimulationStore(s => s.setIsInitialized);
 
-  const { initWorker, stepWorker } = useWasmWorker();
+  const { initWorker, stepWorker, sharedRutBuffer, sharedRutView, sharedMetaView, sharedModeActive } = useWasmWorker();
   const { roverStateRef } = useRoverControls();
   const preset = SOIL_PRESETS[sceneType];
 
@@ -104,8 +104,16 @@ function SimulationInner() {
     stepInProgressRef.current = true;
     stepWorker(dt).then((result: any) => {
       stepInProgressRef.current = false;
-      if (result && result.rutBuffer && result.rutBuffer instanceof Float32Array) {
-        pushRutBuffer(result.rutBuffer);
+      if (result && result.rutBuffer) {
+        pushRutBuffer(
+          result.rutBuffer,
+          !!result.sharedMode || sharedModeActive,
+          result.dirtyRegion,
+          sharedRutBuffer?.current || null,
+          sharedMetaView?.current || null,
+          sharedRutView?.current || null,
+          result.counter || 0,
+        );
       }
       if (result && Array.isArray(result.wheelStates)) {
         setWheelStates(result.wheelStates);

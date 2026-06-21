@@ -1,4 +1,12 @@
-import { SoilParams, WheelParams, WheelState } from '../store/types';
+import { SoilParams, WheelParams, WheelState, DirtyRegion } from '../store/types';
+import {
+  TERRAIN_RESOLUTION,
+} from '../utils/soilPresets';
+import {
+  SAB_RUT_BUFFER_BYTE_OFFSET,
+  FLAG_WORKER_WRITING,
+  FLAG_MAIN_PENDING,
+} from '../utils/sharedMemory';
 
 const MAX_WHEELS = 6;
 
@@ -8,8 +16,18 @@ interface EngineState {
   wheelStates: WheelState[];
   resolution: number;
   heightData: Float32Array;
-  rutBuffer: Float32Array;
-  rutAccumulator: Float32Array;
+  sharedRutBuffer: SharedArrayBuffer | null;
+  sharedRutView: Float32Array | null;
+  sharedMetaView: Int32Array | null;
+  sharedMode: boolean;
+  dirtyMinX: number;
+  dirtyMaxX: number;
+  dirtyMinZ: number;
+  dirtyMaxZ: number;
+  hasDirty: boolean;
+  standaloneRut: Float32Array;
+  standaloneRutAccum: Float32Array;
+  frameCounter: number;
 }
 
 const state: EngineState = {
@@ -18,9 +36,46 @@ const state: EngineState = {
   wheelStates: Array.from({ length: MAX_WHEELS }, () => ({ sinkage: 0, drawbarPull: 0, slipRatio: 0, motionResistance: 0, contactPressure: 0 })),
   resolution: 128,
   heightData: new Float32Array(128 * 128),
-  rutBuffer: new Float32Array(128 * 128),
-  rutAccumulator: new Float32Array(128 * 128),
+  sharedRutBuffer: null,
+  sharedRutView: null,
+  sharedMetaView: null,
+  sharedMode: false,
+  dirtyMinX: 0,
+  dirtyMaxX: 0,
+  dirtyMinZ: 0,
+  dirtyMaxZ: 0,
+  hasDirty: false,
+  standaloneRut: new Float32Array(128 * 128),
+  standaloneRutAccum: new Float32Array(128 * 128),
+  frameCounter: 0,
 };
+
+function resetDirty(): void {
+  state.dirtyMinX = state.resolution;
+  state.dirtyMaxX = -1;
+  state.dirtyMinZ = state.resolution;
+  state.dirtyMaxZ = -1;
+  state.hasDirty = false;
+}
+
+function markDirty(ix: number, iz: number): void {
+  if (ix < state.dirtyMinX) state.dirtyMinX = ix;
+  if (ix > state.dirtyMaxX) state.dirtyMaxX = ix;
+  if (iz < state.dirtyMinZ) state.dirtyMinZ = iz;
+  if (iz > state.dirtyMaxZ) state.dirtyMaxZ = iz;
+  state.hasDirty = true;
+}
+
+function writeRutValue(idx: number, ix: number, iz: number, val: number): void {
+  if (val <= 0.00005) return;
+  if (state.sharedMode && state.sharedRutView) {
+    Atomics.store(state.sharedRutView as unknown as Int32Array, idx, 0);
+    state.sharedRutView[idx] += val;
+  } else {
+    state.standaloneRutAccum[idx] += val;
+  }
+  markDirty(ix, iz);
+}
 
 function getHeightAt(x: number, z: number): number {
   const res = state.resolution;
@@ -48,7 +103,9 @@ function getHeightAt(x: number, z: number): number {
   return h0 * (1 - tz) + h1 * tz;
 }
 
-function applyRutAtPosition(x: number, z: number, depth: number, wheelWidth: number, heading: number, wheelLength: number): void {
+function applyRutAtPosition(
+  x: number, z: number, depth: number, wheelWidth: number, heading: number, wheelLength: number
+): void {
   const res = state.resolution;
   const cellSize = 20 / res;
 
@@ -87,8 +144,7 @@ function applyRutAtPosition(x: number, z: number, depth: number, wheelWidth: num
       const falloff = t * t * t;
 
       const depression = depth * falloff * 0.85;
-      const idx = pz * res + px;
-      state.rutAccumulator[idx] += depression;
+      writeRutValue(pz * res + px, px, pz, depression);
     }
   }
 }
@@ -160,14 +216,46 @@ function computeBullDozingResistance(b: number, z: number): number {
   return Math.max(0, R_b);
 }
 
-export function init(heightData: Float32Array, resolution: number): void {
+export function init(
+  heightData: Float32Array,
+  resolution: number,
+  sharedBuffer?: SharedArrayBuffer
+): { sharedMode: boolean } {
   state.resolution = resolution;
   state.heightData = new Float32Array(heightData);
-  state.rutBuffer = new Float32Array(resolution * resolution);
-  state.rutAccumulator = new Float32Array(resolution * resolution);
+  state.standaloneRut = new Float32Array(resolution * resolution);
+  state.standaloneRutAccum = new Float32Array(resolution * resolution);
+  state.frameCounter = 0;
+
+  if (sharedBuffer && sharedBuffer.byteLength > 0) {
+    try {
+      state.sharedRutBuffer = sharedBuffer;
+      state.sharedRutView = new Float32Array(sharedBuffer, SAB_RUT_BUFFER_BYTE_OFFSET, resolution * resolution);
+      state.sharedMetaView = new Int32Array(sharedBuffer, SAB_RUT_BUFFER_BYTE_OFFSET + resolution * resolution * 4, 8);
+      state.sharedMode = true;
+      state.sharedRutView.fill(0);
+      if (state.sharedMetaView) {
+        Atomics.store(state.sharedMetaView, 0, 0);
+      }
+    } catch (e) {
+      console.warn('[Terramechanics] SharedArrayBuffer init failed, falling back:', e);
+      state.sharedMode = false;
+      state.sharedRutBuffer = null;
+      state.sharedRutView = null;
+      state.sharedMetaView = null;
+    }
+  } else {
+    state.sharedMode = false;
+    state.sharedRutBuffer = null;
+    state.sharedRutView = null;
+    state.sharedMetaView = null;
+  }
+
   for (let i = 0; i < MAX_WHEELS; i++) {
     state.wheelStates[i] = { sinkage: 0, drawbarPull: 0, slipRatio: 0, motionResistance: 0, contactPressure: 0 };
   }
+  resetDirty();
+  return { sharedMode: state.sharedMode };
 }
 
 export function setSoilParams(params: SoilParams): void {
@@ -186,7 +274,30 @@ export function step(
   roverZ: number,
   roverHeading: number,
   roverSpeed: number
-): { wheelStates: WheelState[]; rutBuffer: Float32Array } {
+): {
+  wheelStates: WheelState[];
+  rutBuffer: Float32Array;
+  dirtyRegion: DirtyRegion;
+  sharedMode: boolean;
+  counter: number;
+} {
+  state.frameCounter++;
+
+  if (state.sharedMode) {
+    if (state.sharedRutView) state.sharedRutView.fill(0);
+    resetDirty();
+    if (state.sharedMetaView) {
+      Atomics.store(state.sharedMetaView, 0, FLAG_WORKER_WRITING);
+      Atomics.store(state.sharedMetaView, 1, state.resolution);
+      Atomics.store(state.sharedMetaView, 2, 0);
+      Atomics.store(state.sharedMetaView, 3, state.resolution);
+      Atomics.store(state.sharedMetaView, 4, 0);
+    }
+  } else {
+    state.standaloneRutAccum.fill(0);
+    resetDirty();
+  }
+
   const wheelOffsets: [number, number][] = [
     [-0.35, -0.30], [0.35, -0.30],
     [-0.40, 0.00], [0.40, 0.00],
@@ -222,7 +333,6 @@ export function step(
 
     let slipRatio = 0;
     let drawbarPull = 0;
-    let H = 0;
 
     const tau_max = state.soil.c + p * Math.tan(state.soil.phi);
     const H_max = tau_max * A_contact;
@@ -233,19 +343,17 @@ export function step(
 
       const j = slipRatio * L;
       const tau = tau_max * (1 - Math.exp(-Math.max(1e-6, j) / state.soil.K));
-      H = tau * A_contact;
-
+      const H = tau * A_contact;
       drawbarPull = H - R_total;
     } else {
       slipRatio = 0.001;
       drawbarPull = Math.max(0, H_max * 0.15 - R_total);
-      H = drawbarPull + R_total;
     }
 
     state.wheelStates[i] = {
       sinkage: z,
-      drawbarPull: drawbarPull,
-      slipRatio: slipRatio,
+      drawbarPull,
+      slipRatio,
       motionResistance: R_total,
       contactPressure: p,
     };
@@ -255,19 +363,53 @@ export function step(
     }
   }
 
-  state.rutBuffer.set(state.rutAccumulator);
-  state.rutAccumulator.fill(0);
+  let outRut: Float32Array;
+  let dirtyRegion: DirtyRegion;
+
+  if (state.sharedMode && state.sharedRutView && state.sharedMetaView) {
+    if (state.hasDirty) {
+      Atomics.store(state.sharedMetaView, 1, state.dirtyMinX);
+      Atomics.store(state.sharedMetaView, 2, state.dirtyMaxX);
+      Atomics.store(state.sharedMetaView, 3, state.dirtyMinZ);
+      Atomics.store(state.sharedMetaView, 4, state.dirtyMaxZ);
+    }
+    Atomics.store(state.sharedMetaView, 6, state.frameCounter);
+    Atomics.store(state.sharedMetaView, 0, FLAG_MAIN_PENDING);
+    outRut = state.sharedRutView;
+  } else {
+    state.standaloneRut.set(state.standaloneRutAccum);
+    outRut = new Float32Array(state.standaloneRut);
+  }
+
+  if (!state.hasDirty) {
+    dirtyRegion = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+  } else {
+    dirtyRegion = {
+      minX: Math.max(0, state.dirtyMinX - 1),
+      maxX: Math.min(state.resolution - 1, state.dirtyMaxX + 1),
+      minZ: Math.max(0, state.dirtyMinZ - 1),
+      maxZ: Math.min(state.resolution - 1, state.dirtyMaxZ + 1),
+    };
+  }
 
   return {
     wheelStates: state.wheelStates.map(s => ({ ...s })),
-    rutBuffer: new Float32Array(state.rutBuffer),
+    rutBuffer: outRut,
+    dirtyRegion,
+    sharedMode: state.sharedMode,
+    counter: state.frameCounter,
   };
 }
 
 export function reset(): void {
-  state.rutBuffer = new Float32Array(state.resolution * state.resolution);
-  state.rutAccumulator = new Float32Array(state.resolution * state.resolution);
+  if (state.sharedMode && state.sharedRutView) {
+    state.sharedRutView.fill(0);
+    if (state.sharedMetaView) Atomics.store(state.sharedMetaView, 0, 0);
+  }
+  state.standaloneRut = new Float32Array(state.resolution * state.resolution);
+  state.standaloneRutAccum = new Float32Array(state.resolution * state.resolution);
   for (let i = 0; i < MAX_WHEELS; i++) {
     state.wheelStates[i] = { sinkage: 0, drawbarPull: 0, slipRatio: 0, motionResistance: 0, contactPressure: 0 };
   }
+  resetDirty();
 }

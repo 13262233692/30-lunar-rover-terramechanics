@@ -1,4 +1,4 @@
-import { SoilParams, WheelParams, WheelState } from '../store/types';
+import { SoilParams, WheelParams, WheelState, DirtyRegion } from '../store/types';
 import * as TS from './terramechanicsEngine';
 
 declare global {
@@ -90,13 +90,17 @@ export async function loadWasmEngine(): Promise<boolean> {
   return wasmLoading;
 }
 
-export function init(heightData: Float32Array, resolution: number): void {
+export function init(
+  heightData: Float32Array,
+  resolution: number,
+  sharedBuffer?: SharedArrayBuffer
+): { sharedMode: boolean } {
   if (wasm && ptrs) {
     wasm.HEAPF32.set(heightData, ptrs.heights / 4);
     wasm.init(20, 20, resolution, ptrs.heights, resolution * resolution);
-    return;
+    return { sharedMode: false };
   }
-  TS.init(heightData, resolution);
+  return TS.init(heightData, resolution, sharedBuffer);
 }
 
 export function setSoilParams(params: SoilParams): void {
@@ -115,6 +119,14 @@ export function setWheelParams(index: number, params: WheelParams): void {
   TS.setWheelParams(index, params);
 }
 
+type StepResult = {
+  wheelStates: WheelState[];
+  rutBuffer: Float32Array;
+  dirtyRegion: DirtyRegion;
+  sharedMode: boolean;
+  counter: number;
+};
+
 export function step(
   dt: number,
   roverX: number,
@@ -122,7 +134,7 @@ export function step(
   roverHeading: number,
   roverSpeed: number,
   resolution: number = 128
-): { wheelStates: WheelState[]; rutBuffer: Float32Array } {
+): StepResult {
   if (wasm && ptrs) {
     wasm.step(
       dt, roverX, roverZ, roverHeading, roverSpeed,
@@ -144,7 +156,13 @@ export function step(
       });
     }
     const rut = new Float32Array(H32.buffer, ptrs.rut, resolution * resolution).slice();
-    return { wheelStates: states, rutBuffer: rut };
+    return {
+      wheelStates: states,
+      rutBuffer: rut,
+      dirtyRegion: { minX: 0, maxX: resolution - 1, minZ: 0, maxZ: resolution - 1 },
+      sharedMode: false,
+      counter: 0,
+    };
   }
   return TS.step(dt, roverX, roverZ, roverHeading, roverSpeed);
 }

@@ -39,6 +39,13 @@ export interface SimulationFrame {
 
 export type SceneType = 'lunar' | 'mars';
 
+export interface DirtyRegion {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
 export interface WorkerInitMessage {
   type: 'init';
   terrainWidth: number;
@@ -47,6 +54,7 @@ export interface WorkerInitMessage {
   heightData: Float32Array;
   soilParams: SoilParams;
   wheelParams: WheelParams[];
+  sharedRutBuffer?: SharedArrayBuffer;
 }
 
 export interface WorkerStepMessage {
@@ -71,11 +79,16 @@ export interface WorkerStepResult {
   roverX: number;
   roverZ: number;
   roverHeading: number;
+  sharedMode?: boolean;
+  dirtyRegion?: DirtyRegion;
+  counter?: number;
 }
 
 export interface WorkerInitResult {
   type: 'initResult';
   success: boolean;
+  sharedMode?: boolean;
+  engineType?: 'wasm' | 'typescript';
 }
 
 export type WorkerMessage = WorkerInitMessage | WorkerStepMessage | WorkerResetMessage;

@@ -16,6 +16,8 @@ interface SimulationStore {
   totalMotionResistance: number;
   avgSinkage: number;
   maxSinkage: number;
+  engineType: 'wasm' | 'typescript';
+  sharedModeActive: boolean;
 
   setSceneType: (type: SceneType) => void;
   setSoilParams: (params: Partial<SoilParams>) => void;
@@ -25,6 +27,8 @@ interface SimulationStore {
   setRoverState: (state: Partial<RoverState>) => void;
   setIsRunning: (running: boolean) => void;
   setIsInitialized: (initialized: boolean) => void;
+  setEngineType: (t: 'wasm' | 'typescript') => void;
+  setSharedModeActive: (v: boolean) => void;
   togglePanel: () => void;
   toggleDashboard: () => void;
   resetSimulation: () => void;
@@ -46,6 +50,8 @@ export const useSimulationStore = create<SimulationStore>((set, get) => ({
   totalMotionResistance: 0,
   avgSinkage: 0,
   maxSinkage: 0,
+  engineType: 'typescript',
+  sharedModeActive: false,
 
   setSceneType: (type) => {
     set({ sceneType: type, soilParams: getSoilParams(type) });
@@ -69,10 +75,11 @@ export const useSimulationStore = create<SimulationStore>((set, get) => ({
   },
 
   setWheelStates: (states) => {
-    const totalDP = states.reduce((sum, s) => sum + s.drawbarPull, 0);
-    const totalMR = states.reduce((sum, s) => sum + s.motionResistance, 0);
-    const avgS = states.reduce((sum, s) => sum + s.sinkage, 0) / states.length;
-    const maxS = Math.max(...states.map(s => s.sinkage));
+    if (!states || states.length === 0) return;
+    const totalDP = states.reduce((sum, s) => sum + (s.drawbarPull || 0), 0);
+    const totalMR = states.reduce((sum, s) => sum + (s.motionResistance || 0), 0);
+    const avgS = states.reduce((sum, s) => sum + (s.sinkage || 0), 0) / Math.max(1, states.length);
+    const maxS = states.length > 0 ? Math.max(...states.map(s => s.sinkage || 0)) : 0;
     set({ wheelStates: states, totalDrawbarPull: totalDP, totalMotionResistance: totalMR, avgSinkage: avgS, maxSinkage: maxS });
   },
 
@@ -82,6 +89,8 @@ export const useSimulationStore = create<SimulationStore>((set, get) => ({
 
   setIsRunning: (running) => set({ isRunning: running }),
   setIsInitialized: (initialized) => set({ isInitialized: initialized }),
+  setEngineType: (t) => set({ engineType: t }),
+  setSharedModeActive: (v) => set({ sharedModeActive: v }),
   togglePanel: () => set((s) => ({ showPanel: !s.showPanel })),
   toggleDashboard: () => set((s) => ({ showDashboard: !s.showDashboard })),
 
@@ -98,3 +107,7 @@ export const useSimulationStore = create<SimulationStore>((set, get) => ({
     });
   },
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).__simulationStore = useSimulationStore;
+}
