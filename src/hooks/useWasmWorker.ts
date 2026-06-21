@@ -106,6 +106,7 @@ export function useWasmWorker() {
         roverZ: state.roverState.z,
         roverHeading: state.roverState.heading,
         roverSpeed: state.roverState.speed,
+        targetSpeed: state.roverState.targetSpeed ?? 0,
         soilParams: state.soilParams,
         wheelParams: state.wheelParams,
       });

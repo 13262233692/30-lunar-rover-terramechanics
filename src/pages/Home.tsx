@@ -1,6 +1,7 @@
 import { Scene } from '../components/Scene';
 import { ControlPanel } from '../components/ControlPanel';
 import { Dashboard } from '../components/Dashboard';
+import { DifferentialLockPanel } from '../components/DifferentialLockPanel';
 import { useSimulationStore } from '../store/simulationStore';
 import { useEffect } from 'react';
 
@@ -23,6 +24,7 @@ export default function Home() {
       <Scene />
       <ControlPanel />
       <Dashboard />
+      {isRunning && <DifferentialLockPanel />}
 
       {!isRunning && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm">

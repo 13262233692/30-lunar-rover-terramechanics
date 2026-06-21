@@ -21,6 +21,9 @@ export interface WheelState {
   slipRatio: number;
   motionResistance: number;
   contactPressure: number;
+  torqueAllocation: number;
+  angularVelocity: number;
+  groundSpeed: number;
 }
 
 export interface RoverState {
@@ -29,6 +32,7 @@ export interface RoverState {
   heading: number;
   speed: number;
   angularVelocity: number;
+  targetSpeed: number;
 }
 
 export interface SimulationFrame {
@@ -44,6 +48,40 @@ export interface DirtyRegion {
   maxX: number;
   minZ: number;
   maxZ: number;
+}
+
+export interface WheelCondition {
+  wheelIndex: number;
+  slipRatio: number;
+  gripStatus: 'healthy' | 'warning' | 'critical' | 'locked';
+  tractionAvailable: number;
+  torqueRequested: number;
+  torqueActual: number;
+  excessConsecutiveFrames: number;
+}
+
+export interface AxlePair {
+  leftIndex: number;
+  rightIndex: number;
+  leftSlip: number;
+  rightSlip: number;
+  leftTorque: number;
+  rightTorque: number;
+  torqueTransferAmount: number;
+  torqueTransferDirection: 'left-to-right' | 'right-to-left' | 'none';
+  lockEngaged: boolean;
+}
+
+export interface DiffLockState {
+  enabled: boolean;
+  slipThreshold: number;
+  consecutiveFramesToLock: number;
+  torqueTransferRate: number;
+  wheelConditions: WheelCondition[];
+  axlePairs: AxlePair[];
+  activeLockCount: number;
+  totalTorqueRedistributed: number;
+  interventionCount: number;
 }
 
 export interface WorkerInitMessage {
@@ -64,6 +102,7 @@ export interface WorkerStepMessage {
   roverZ: number;
   roverHeading: number;
   roverSpeed: number;
+  targetSpeed: number;
   soilParams?: SoilParams;
   wheelParams?: WheelParams[];
 }
@@ -82,6 +121,7 @@ export interface WorkerStepResult {
   sharedMode?: boolean;
   dirtyRegion?: DirtyRegion;
   counter?: number;
+  diffLockState?: DiffLockState;
 }
 
 export interface WorkerInitResult {

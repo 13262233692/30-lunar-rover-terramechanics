@@ -2,7 +2,7 @@ import { useSimulationStore } from '../store/simulationStore';
 import { SceneType } from '../store/types';
 import {
   ChevronLeft, ChevronRight, Play, Square, RotateCcw,
-  Globe, Settings, Gauge
+  Globe, Settings, Gauge, Shield, Lock, Unlock
 } from 'lucide-react';
 
 export function ControlPanel() {
@@ -17,6 +17,8 @@ export function ControlPanel() {
   const isRunning = useSimulationStore(s => s.isRunning);
   const startSimulation = useSimulationStore(s => s.setIsRunning);
   const resetSimulation = useSimulationStore(s => s.resetSimulation);
+  const diffLockEnabled = useSimulationStore(s => s.diffLockEnabled);
+  const setDiffLockEnabled = useSimulationStore(s => s.setDiffLockEnabled);
 
   if (!showPanel) {
     return (
@@ -144,6 +146,26 @@ export function ControlPanel() {
           >
             <RotateCcw size={12} />
           </button>
+        </div>
+
+        <div className="pt-2 border-t border-white/5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Shield size={11} className="text-amber-400" />
+              <span className="text-[10px] text-amber-400/80 font-mono uppercase tracking-wider">差速锁</span>
+            </div>
+            <button
+              onClick={() => setDiffLockEnabled(!diffLockEnabled)}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[9px] font-mono uppercase transition-all ${
+                diffLockEnabled
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                  : 'bg-white/5 text-white/30 border border-white/10'
+              }`}
+            >
+              {diffLockEnabled ? <Lock size={9} /> : <Unlock size={9} />}
+              {diffLockEnabled ? 'ACTIVE' : 'OFF'}
+            </button>
+          </div>
         </div>
 
         <div className="pt-2 border-t border-white/5">

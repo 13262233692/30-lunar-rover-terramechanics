@@ -59,6 +59,7 @@ function SimulationInner() {
   const wheelParams = useSimulationStore(s => s.wheelParams);
   const sceneType = useSimulationStore(s => s.sceneType);
   const setWheelStates = useSimulationStore(s => s.setWheelStates);
+  const setDiffLockState = useSimulationStore(s => s.setDiffLockState);
   const setIsInitialized = useSimulationStore(s => s.setIsInitialized);
 
   const { initWorker, stepWorker, sharedRutBuffer, sharedRutView, sharedMetaView, sharedModeActive } = useWasmWorker();
@@ -117,6 +118,9 @@ function SimulationInner() {
       }
       if (result && Array.isArray(result.wheelStates)) {
         setWheelStates(result.wheelStates);
+      }
+      if (result && result.diffLockState) {
+        setDiffLockState(result.diffLockState);
       }
     }).catch(() => {
       stepInProgressRef.current = false;
